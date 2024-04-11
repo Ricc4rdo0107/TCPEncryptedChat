@@ -14,9 +14,6 @@ def tkot_menu(event, menu):
     finally:
         menu.grab_release()
 
-def background(function:Callable, args=None):
-    if args:
-        t = Thread(target=function, args=args)
-    else:
-        t = Thread(target=function)
+def background(function:Callable, args=None):
+    t = Thread(target=function, args=args)
     t.start()
