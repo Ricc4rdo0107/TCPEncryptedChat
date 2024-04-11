@@ -1,6 +1,5 @@
 from threading import Thread
-from typing import Callable
-from icecream.icecream import ic
+from typing import Callable
 from cryptography.fernet import Fernet
 
 def generate_key_file():
