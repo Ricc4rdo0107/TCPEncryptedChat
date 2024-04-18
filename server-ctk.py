@@ -7,7 +7,8 @@ from icecream.icecream import ic
 import customtkinter as ctk
 from cryptography.fernet import Fernet
 from tkinter import messagebox, Menu
-from utils import background, tkot_menu, generate_key_file
+from utils import (background, tkot_menu, generate_key_file,
+                   InvalidToken)
 
 class Server:
     def __init__(self, encrypted=False):
@@ -108,7 +109,12 @@ class Server:
             sock.settimeout(2)
             name = sock.recv(1024).decode().strip()
             if encr:
-                name = self.decrypt(name).decode()
+                try:
+                    name = self.decrypt(name).decode()
+                except InvalidToken:
+                    ic(f"Invalid token by {raddr[0]}{raddr[1]}")
+                    self.tprint(f"{raddr[0]}:{raddr[1]} tried to use an invalid cryptography token")
+                    sock.close()
             if name.startswith("HEYMYNICKIS") and name.endswith("HEYMYNICKIS"):
                 name = name.replace("HEYMYNICKIS", "")
                 if name in self.connected_clients.keys():
@@ -138,7 +144,13 @@ class Server:
             try:
                 data = sock.recv(2048)
                 if encr:
-                    data = self.decrypt(data)
+                    try:
+                        data = self.decrypt(data)
+                    except InvalidToken:
+                        ic(f"Invalid token by {raddr[0]}:{raddr[1]}")
+                        self.tprint(f"{raddr[0]}:{raddr[1]} tried to use an invalid cryptography token")
+                        sock.close()
+                        break
                 ddata = data.decode()
 
                 if not data:
@@ -148,7 +160,7 @@ class Server:
                     self.tprint(f"{name}: {ddata}")
                     self.broadcast(f"{name}: {ddata}", exclude=sock)
 
-            except ConnectionAbortedError:
+            except ConnectionAbortedError as e:
                 ic(e)
                 self.broadcast(f"{name} has been kicked", host=True)
                 break

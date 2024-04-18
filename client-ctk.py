@@ -1,21 +1,20 @@
 import os
 import socket
 from time import sleep
+from typing import Callable
 from icecream.icecream import ic
 from cryptography.fernet import Fernet
-from utils import background, tkot_menu
+from utils import background, tkot_menu, InvalidToken
 
 
 import customtkinter as ctk
 from tkinter import messagebox, Menu
 
 
-class InteractionGUI(ctk.CTkToplevel):
+class InteractionGUI():
 
-    def __init__(self, parent : ctk.CTk, nick:str, sock:socket.socket, theme:str, addr : list[str, int] = None, encrypted : bool = False) -> None:
-        super().__init__(parent)
-
-
+    def __init__(self, parent : ctk.CTk, winsize:tuple, nick:str, sock:socket.socket, 
+                 theme:str, addr : list[str, int] = None, encrypted : bool = False, on_exit:Callable=None) -> None:
         self.keep_on_top = False
         self.encrypted = encrypted
         self.nick = nick
@@ -23,6 +22,10 @@ class InteractionGUI(ctk.CTkToplevel):
         self.theme = theme
         self.addr = addr
         self.parent = parent
+        self.winsize = winsize
+
+        if not(on_exit is None):
+            self.on_exit = on_exit
 
         if self.encrypted:
             try:
@@ -31,7 +34,9 @@ class InteractionGUI(ctk.CTkToplevel):
                 self.fernet = Fernet(key)
             except FileNotFoundError as e:
                 print(e)
-                #messagebox.showinfo(title="Can't initialize Fernet", message="File key.key missing")
+                messagebox.showinfo(title="Can't initialize Fernet", message="File key.key missing")
+                self.sock.close()
+                on_exit()
                 return
             else:
                 self.decrypt = self.fernet.decrypt
@@ -45,12 +50,19 @@ class InteractionGUI(ctk.CTkToplevel):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme(self.theme)
 
-        self.geometry("500x400")
+        global interaction_frame_x
+        global interaction_frame_y
 
-        self.frame = ctk.CTkFrame(self)
-        self.frame.pack(pady=20, padx=60, fill="both", expand=True)
+        interaction_frame_x = self.winsize[0]/2
+        interaction_frame_y = self.winsize[1]/2
 
-        self.rc_menu = Menu(self, tearoff=False)
+        print(f"WINSIZE {interaction_frame_x},{interaction_frame_y}")
+
+        self.frame = ctk.CTkFrame(self.parent)
+        self.frame.place(x=interaction_frame_x, y=interaction_frame_y, anchor="center")
+        #self.frame.pack(pady=20, padx=60, fill="both", expand=True)
+
+        self.rc_menu = Menu(self.parent, tearoff=False)
         self.rc_menu.add_command(label="Toggle TopMost", command=lambda:background(self.toggle_kot))
 
         self.label = ctk.CTkLabel(self.frame, text=f"Interaction with {addr[0]}:{addr[1]}")
@@ -65,11 +77,23 @@ class InteractionGUI(ctk.CTkToplevel):
         self.inputbox.bind("<Return>", command=lambda x:background(self.send_text))
         self.inputbox.pack(pady=12, padx=10)
 
-        self.protocol("WM_DELETE_WINDOW", self.on_exit)
-        self.resizable(0,0) #Window not resizable
-        self.title(f"Interacting as {self.nick}")
-
+        self.parent.title(f"Interacting as {self.nick}")
         recvThread = background(self.listen_for_messages)
+
+
+    def destroy(self):
+        self.frame.destroy()
+        try:
+            self.on_exit()
+        except Exception as e:
+            ic(e)
+
+
+    def get_in_post(self):
+        global interaction_frame_x
+        global interaction_frame_y
+        self.frame.place(y=interaction_frame_y, x=interaction_frame_x)
+    
 
     def tkot_menu(self, event):
         try:
@@ -79,15 +103,8 @@ class InteractionGUI(ctk.CTkToplevel):
 
     def toggle_kot(self):
         self.keep_on_top = not(self.keep_on_top)
-        self.attributes("-topmost", self.keep_on_top)
-        self.update()
-
-    def on_exit(self):
-        if messagebox.askyesno("Quit?", message="Are you sure you want to quit?"):
-            self.sock.close()
-            self.destroy()
-
-        self.parent.focus_force()
+        self.parent.attributes("-topmost", self.keep_on_top)
+        self.parent.update()
 
     def send_text(self):
         text = self.inputbox.get().encode()
@@ -107,7 +124,10 @@ class InteractionGUI(ctk.CTkToplevel):
             try:
                 data = self.sock.recv(2048)
                 if encr:
-                    data = self.decrypt(data)
+                    try:
+                        data = self.decrypt(data)
+                    except InvalidToken:
+                        pass
                 if not data:
                     raise ConnectionResetError("Data not available")
             except Exception as e:
@@ -141,14 +161,21 @@ class ConnectionGUI:
         self.root.title(self.title)
         self.root.geometry("500x350")
 
+        global frame_x
+        global frame_y
+        frame_x = 500/2
+        frame_y = 350/2
         self.frame = ctk.CTkFrame(self.root)
-        self.frame.pack(pady=20, padx=60, fill="both", expand=True)
+        self.frame.place(x=frame_x, y=frame_y, anchor="center")
+        #self.frame.pack(pady=20, padx=60, fill="both", expand=True)
 
         self.rc_menu = Menu(self.root, tearoff=False)
         self.rc_menu.add_command(label="Toggle TopMost", command=lambda:background(self.toggle_kot))
+        #self.rc_menu.add_command(label="Down", command=lambda:background(self.addr_frame_down))
+        #self.rc_menu.add_command(label="Up", command=lambda:background(self.addr_frame_up))
 
         self.label = ctk.CTkLabel(self.frame , text="TCP Client")
-        self.label.pack(pady=12, padx=10)
+        self.label.pack(pady=12, padx=150)
         self.label.bind("<Button-3>", command=lambda x:tkot_menu(x, self.rc_menu))
 
         self.nick_entry = ctk.CTkEntry(self.frame, placeholder_text="Nickname")
@@ -167,6 +194,21 @@ class ConnectionGUI:
         self.root.protocol("WM_DELETE_WINDOW", self.on_exit)
         self.root.resizable(0,0) #Window not resizable
         self.root.mainloop()
+
+    def addr_frame_down(self):
+        global frame_y
+        if frame_y < 500:
+            frame_y += 20
+            self.frame.place(y=frame_y)
+            self.root.after(12, self.addr_frame_down)
+
+    def addr_frame_up(self):
+        global frame_y
+        if frame_y > 350/2:
+            frame_y -= 20
+            self.frame.place(y=frame_y)
+            self.root.after(12, self.addr_frame_up)
+        
 
     def toggle_kot(self):
         self.keep_on_top = not(self.keep_on_top)
@@ -232,24 +274,17 @@ class ConnectionGUI:
                 exceptions.append(e)
             else:
                 self.addr = host, port
-                self.root.wm_title("Opening Interaction Window...")
+                self.root.wm_title("Interacting")
                 self.connect_button.configure(text="Connect", state="normal")
                 self.connecting = 0
-
-                self.start_inteaction_gui(self.root, nick, self.sock, self.theme, self.addr, self.encrypted)
-                self.root.iconify()
-                self.root.wm_title(self.title)
+                self.addr_frame_down()
+                InteractionGUI(self.root, (500,350), nick, self.sock, self.theme, self.addr, self.encrypted, on_exit=self.addr_frame_up)
                 break
 
         if len(exceptions):
             return exceptions[-1]
         else:
             return True
-    
-    @staticmethod
-    def start_inteaction_gui(master, nick, connection, theme, addr, encrypted=False) -> None:
-        interactionGui = InteractionGUI(master, nick, connection, theme, addr, encrypted=encrypted)
-        interactionGui.grab_set()
 
 if __name__ == "__main__":
     connection_gui = ConnectionGUI(encrypted=True)

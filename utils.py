@@ -1,6 +1,7 @@
 from threading import Thread
-from typing import Callable
-from cryptography.fernet import Fernet
+from typing import Callable
+from icecream.icecream import ic
+from cryptography.fernet import Fernet, InvalidToken
 
 def generate_key_file():
     key = Fernet.generate_key()
@@ -13,6 +14,9 @@ def tkot_menu(event, menu):
     finally:
         menu.grab_release()
 
-def background(function:Callable, args=None):
-    t = Thread(target=function, args=args)
+def background(function:Callable, args=None):
+    if args:
+        t = Thread(target=function, args=args)
+    else:
+        t = Thread(target=function)
     t.start()
